@@ -122,6 +122,32 @@ pnpm build
 pnpm preview
 ```
 
+### Packaging a Windows executable
+
+You can produce a Windows installer and a portable `.exe` from either Windows or Linux:
+
+```bash
+pnpm dist:win
+```
+
+This runs `electron-vite build` and then `electron-builder --win`, producing two artifacts in `dist/`:
+
+| File | Type | Description |
+|---|---|---|
+| `MeetingMind-Setup-<version>-x64.exe` | NSIS installer | Per-user install with selectable directory and Start Menu / Desktop shortcuts |
+| `MeetingMind-Portable-<version>-x64.exe` | Portable | Single-file executable, no install required |
+
+**Cross-building from Linux:** electron-builder uses Wine to set the version metadata on the `.exe`. Install Wine (`sudo apt install wine`) and make sure your prefix is a clean 64-bit one — if you hit `could not load kernel32.dll`, recreate it:
+
+```bash
+rm -rf ~/.wine
+WINEARCH=win64 wineboot --init
+```
+
+**Important:** the Python WhisperX backend is **not** bundled in the Windows package. Only `python/transcribe.py` and `python/requirements.txt` are shipped as extra resources. End users on Windows still need to install Python 3.10+, FFmpeg, create a venv, and `pip install -r python/requirements.txt`, then point Settings → Whisper → Python Path at the resulting `python.exe` (e.g. `C:\path\to\python\.venv\Scripts\python.exe`).
+
+The build is unsigned, so Windows SmartScreen will warn on first launch. To set a custom application icon, drop a `.ico` file at `build/icon.ico` before building.
+
 ### First launch
 
 1. Click the **gear icon** to open Settings
@@ -130,7 +156,7 @@ pnpm preview
    - **API Key**: `ollama` (for Ollama) or your actual key
    - **Model**: `llama3` or any model available on your endpoint
 3. Configure Whisper:
-   - **Python Path**: `/path/to/meeting-mind/python/.venv/bin/python`
+   - **Python Path**: path to the venv Python (Linux/macOS: `/path/to/meeting-mind/python/.venv/bin/python`, Windows: `C:\path\to\meeting-mind\python\.venv\Scripts\python.exe`)
    - **Model Size**: `small` is recommended (see table below)
    - **Device**: `auto` (uses GPU if available)
 4. Click **Test Connection** to verify the LLM is reachable
