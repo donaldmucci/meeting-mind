@@ -23,7 +23,7 @@ Think of it as an open-source, local-first alternative to MS Teams Premium's Int
   - Action items with assignee, deadline, and priority
   - Suggested follow-ups
 - **28 languages supported** -- Select the conversation language per file; both transcription and LLM output adapt accordingly.
-- **History and export** -- Past analyses are saved locally and can be exported as Markdown or JSON.
+- **History and export** -- Past analyses are saved locally. Export the **analysis** (summary, topics, decisions, action items, follow-ups) as a Markdown file, or the full **transcript** with timestamps and speaker labels as a text file.
 - **Fully configurable** -- Choose your Whisper model size, LLM endpoint, model, and device (CPU/GPU).
 
 ---
@@ -96,14 +96,28 @@ export HF_TOKEN="hf_your_token_here"
 
 ### 4. Set up an LLM
 
-The easiest local option is [Ollama](https://ollama.com/):
+You have three broad options:
+
+**Option A — Local Ollama (free, fully offline)**
 
 ```bash
 # Install Ollama, then:
 ollama pull llama3
 ```
 
-This gives you a free, local LLM at `http://localhost:11434/v1`. Alternatively, use any OpenAI-compatible endpoint (OpenAI, Groq, Together, LM Studio, etc.).
+This gives you a local LLM at `http://localhost:11434/v1`. Use `ollama` (or any non-empty string) as the API key.
+
+**Option B — Ollama Cloud (hosted, larger models)**
+
+[Ollama Cloud / Turbo](https://ollama.com/) hosts larger models you can't run locally (e.g. `minimax-m2:cloud`, `gpt-oss:120b-cloud`). It exposes the same OpenAI-compatible API.
+
+- **Endpoint:** `https://ollama.com/v1` &nbsp;*(the `/v1` suffix is required)*
+- **API Key:** your Ollama Cloud key from [ollama.com/settings/keys](https://ollama.com/settings/keys)
+- **Model:** any cloud model name, e.g. `minimax-m2:cloud`
+
+**Option C — Any other OpenAI-compatible endpoint**
+
+OpenAI, Groq, Together, LM Studio, vLLM, etc. all work. The base URL must be the one the OpenAI SDK can append `/chat/completions` to — for almost every provider that means it ends in `/v1`.
 
 ---
 
@@ -159,6 +173,7 @@ The build is unsigned, so Windows SmartScreen will warn on first launch. To set 
    - **Python Path**: path to the venv Python (Linux/macOS: `/path/to/meeting-mind/python/.venv/bin/python`, Windows: `C:\path\to\meeting-mind\python\.venv\Scripts\python.exe`)
    - **Model Size**: `small` is recommended (see table below)
    - **Device**: `auto` (uses GPU if available)
+   - **HuggingFace Token** *(optional)*: paste a token from [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) to enable speaker diarization. Without it, all speech is attributed to a single speaker. You also need to accept the model terms at [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) and [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0).
 4. Click **Test Connection** to verify the LLM is reachable
 5. Save settings
 
@@ -170,6 +185,11 @@ The build is unsigned, so Windows SmartScreen will warn on first launch. To set 
 - Click **Analyze**
 
 The app will transcribe the audio, then run 5 parallel LLM calls to extract summary, topics, decisions, action items, and follow-ups. Results are displayed in a tabbed interface and saved to your local history.
+
+From the results view you can:
+
+- **Export Analysis** — a Markdown file with the summary, key points, topics, decisions, action items, and follow-ups (no transcript)
+- **Export Transcript** — a plain-text file with a header (date, duration, language, speakers) followed by one line per segment in the form `[mm:ss] SPEAKER_00: text...`
 
 ---
 
@@ -266,9 +286,19 @@ Settings are stored in your OS user data directory (e.g., `~/.config/meeting-min
 
 | Field | Default | Description |
 |---|---|---|
-| `endpoint` | `http://localhost:11434/v1` | OpenAI-compatible API base URL |
-| `apiKey` | `ollama` | API key (use any non-empty string for Ollama) |
+| `endpoint` | `http://localhost:11434/v1` | OpenAI-compatible API base URL. **Must include the `/v1` suffix** — the OpenAI SDK appends `/chat/completions` to this value, so a bare host (e.g. `https://ollama.com`) will return `404`. |
+| `apiKey` | `ollama` | API key (use any non-empty string for local Ollama; use a real key for Ollama Cloud, OpenAI, etc.) |
 | `model` | `llama3` | Model name to use for analysis |
+
+Common endpoints:
+
+| Provider | Endpoint |
+|---|---|
+| Local Ollama | `http://localhost:11434/v1` |
+| Ollama Cloud | `https://ollama.com/v1` |
+| OpenAI | `https://api.openai.com/v1` |
+| LM Studio | `http://localhost:1234/v1` |
+| Groq | `https://api.groq.com/openai/v1` |
 
 ### Whisper Settings
 
@@ -277,22 +307,62 @@ Settings are stored in your OS user data directory (e.g., `~/.config/meeting-min
 | `pythonPath` | `python3` | Path to Python with WhisperX installed |
 | `model` | `small` | Whisper model size: `tiny`, `base`, `small`, `medium`, `large` |
 | `device` | `auto` | Compute device: `auto`, `cpu`, `cuda` |
+| `hfToken` | `''` | HuggingFace token for speaker diarization. If empty, the app falls back to the `HF_TOKEN` environment variable. If both are empty, all speech is attributed to a single speaker. |
 
 ---
 
 ## Troubleshooting
 
+### Debug trace
+
+Every step of the analysis pipeline emits a `[MM]` log line to the terminal where you ran `pnpm dev`. If something goes wrong, this is the first place to look — the logs show which stage failed and dump the relevant payload (Python stderr, raw LLM responses, HTTP status codes).
+
+```bash
+# See only the trace lines:
+pnpm dev 2>&1 | grep -E '\[MM\]|ERROR|Traceback'
+```
+
+The trace covers five layers:
+
+| Layer | Prefix | What it shows |
+|---|---|---|
+| IPC entry | `[MM][ipc]` | Incoming `pipeline:start` calls and final success/failure |
+| Pipeline | `[MM][pipeline]` | Settings dump, phase timings, segment counts, full error stack |
+| Whisper subprocess | `[MM][transcribe]` | Spawn args, exit code, all Python stderr forwarded as `[py-stderr]`, stdout snippets on parse failure |
+| LLM calls | `[MM][llm][<step>]` | Per-call timing, request/response sizes, HTTP status on failure, raw content on JSON parse failure |
+| Python script | `DEBUG:` lines (in `[py-stderr]`) | Args, device resolution, audio shape, per-step status, full tracebacks |
+
+### "404" errors during analysis
+The trace will show something like `[MM][llm][topics] HTTP/SDK error after 227ms: 404`. This almost always means your **LLM endpoint is missing the `/v1` suffix**. The OpenAI SDK appends `/chat/completions` to whatever base URL you provide, so:
+
+- `https://ollama.com` → POSTs to `https://ollama.com/chat/completions` → **404**
+- `https://ollama.com/v1` → POSTs to `https://ollama.com/v1/chat/completions` → **OK**
+
+Open Settings, fix the endpoint, and re-run. See [LLM Settings](#llm-settings) for a list of common endpoints.
+
 ### "Failed to parse transcription output"
-The Python script's stdout must be clean JSON. This usually means a library is printing logs to stdout. The app handles this for known cases (whisperx, yt-dlp), but if you encounter it, check that no other library is printing to stdout in your Python environment.
+The Python script's stdout must be clean JSON. This usually means a library is printing logs to stdout. The app handles this for known cases (whisperx, yt-dlp), but if you encounter it, check that no other library is printing to stdout in your Python environment. The trace will dump the first/last 500 chars of stdout so you can see exactly what slipped through.
 
 ### "Failed to start Python"
-Verify the Python path in Settings points to the correct virtualenv binary (e.g., `/path/to/meeting-mind/python/.venv/bin/python`).
+Verify the Python path in Settings points to the correct virtualenv binary (e.g., `/path/to/meeting-mind/python/.venv/bin/python`). The trace will print the exact path being spawned at `[MM][transcribe] spawning python: ...`.
+
+### "LLM <step> returned invalid JSON"
+The model returned text that wasn't valid JSON, even though we asked for `response_format: json_object`. Some local models (especially smaller Ollama models) ignore this hint. The trace dumps the first 800 chars of the raw response so you can see what came back — usually a markdown-fenced block or a chatty preamble. Switching to a larger / better instruction-tuned model usually fixes it.
 
 ### GPU errors on Linux
 If you see `Exiting GPU process due to errors during initialization`, this is a Chromium/Electron issue with GPU drivers. The app automatically falls back to software rendering -- these messages are harmless.
 
-### Speaker diarization not working
-Set the `HF_TOKEN` environment variable before launching the app. You need to accept the pyannote model terms on HuggingFace first.
+### All segments labeled as `SPEAKER_00`
+This means speaker diarization was skipped — the trace will confirm with `Diarization skipped (no HuggingFace token)` or `Diarization skipped: <error>`.
+
+To enable speaker identification:
+
+1. Get a HuggingFace token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
+2. Visit [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) and accept the model terms (also accept [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0))
+3. Open **Settings → Whisper → HuggingFace Token** in the app, paste the token, save
+4. Re-run the analysis
+
+The token is also picked up from the `HF_TOKEN` environment variable as a fallback if the setting is empty.
 
 ### YouTube download fails
 Ensure `ffmpeg` is installed and in your PATH. yt-dlp requires it for audio extraction.

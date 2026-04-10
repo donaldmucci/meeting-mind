@@ -125,6 +125,22 @@ export function SettingsDialog() {
                   <option value="cuda">CUDA (GPU)</option>
                 </select>
               </div>
+              <div>
+                <Field
+                  label="HuggingFace Token (optional, for speaker diarization)"
+                  value={form.whisper.hfToken}
+                  onChange={(v) => setForm({ ...form, whisper: { ...form.whisper, hfToken: v } })}
+                  placeholder="hf_..."
+                  type="password"
+                />
+                <p className="mt-1 text-xs text-zinc-500">
+                  Required to identify different speakers. Get one at{' '}
+                  <span className="text-zinc-400">huggingface.co/settings/tokens</span>{' '}
+                  and accept the terms for{' '}
+                  <span className="text-zinc-400">pyannote/speaker-diarization-3.1</span>.
+                  Without it, all speech is attributed to a single speaker.
+                </p>
+              </div>
             </div>
           </section>
         </div>

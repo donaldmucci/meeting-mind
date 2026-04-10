@@ -8,6 +8,7 @@ export interface Settings {
     pythonPath: string
     model: 'tiny' | 'base' | 'small' | 'medium' | 'large'
     device: 'auto' | 'cpu' | 'cuda'
+    hfToken: string
   }
 }
 
@@ -20,7 +21,8 @@ export const defaultSettings: Settings = {
   whisper: {
     pythonPath: 'python3',
     model: 'small',
-    device: 'auto'
+    device: 'auto',
+    hfToken: ''
   }
 }
 

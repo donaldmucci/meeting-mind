@@ -49,14 +49,14 @@ export function ResultsView() {
             className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
           >
             <Download size={14} />
-            Export MD
+            Export Analysis
           </button>
           <button
-            onClick={() => exportResult('json')}
+            onClick={() => exportResult('transcript')}
             className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
           >
             <Download size={14} />
-            Export JSON
+            Export Transcript
           </button>
         </div>
       </div>

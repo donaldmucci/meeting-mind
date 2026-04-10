@@ -23,7 +23,15 @@ function writeFile(data: { settings: Settings }): void {
 }
 
 export function getSettings(): Settings {
-  return readFile().settings
+  // Merge with defaults so newly added fields (e.g. hfToken) are populated
+  // for users who saved settings before the field existed.
+  const stored = readFile().settings
+  return {
+    ...defaultSettings,
+    ...stored,
+    llm: { ...defaultSettings.llm, ...(stored.llm ?? {}) },
+    whisper: { ...defaultSettings.whisper, ...(stored.whisper ?? {}) }
+  }
 }
 
 export function setSettings(settings: Settings): void {

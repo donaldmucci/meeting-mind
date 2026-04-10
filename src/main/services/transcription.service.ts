@@ -35,30 +35,68 @@ export class TranscriptionService {
         '--device', settings.device
       ]
 
+      // Pass HF token via env var rather than argv so it doesn't show up
+      // in process listings. Python script reads HF_TOKEN as a fallback.
+      const env = { ...process.env }
+      if (settings.hfToken && settings.hfToken.trim()) {
+        env.HF_TOKEN = settings.hfToken.trim()
+      }
+
+      console.log('[MM][transcribe] spawning python:', settings.pythonPath)
+      console.log('[MM][transcribe] script:', scriptPath)
+      console.log('[MM][transcribe] args:', args.slice(1))
+      console.log('[MM][transcribe] file:', filePath)
+      console.log('[MM][transcribe] HF_TOKEN present:', !!env.HF_TOKEN)
+
       this.process = spawn(settings.pythonPath, args, {
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env
       })
 
       let stdout = ''
       let stderr = ''
+      let stderrBuf = ''
 
       this.process.stdout?.on('data', (data: Buffer) => {
-        stdout += data.toString()
+        const chunk = data.toString()
+        stdout += chunk
+        console.log(`[MM][transcribe][py-stdout] +${chunk.length} bytes (total ${stdout.length})`)
       })
 
       this.process.stderr?.on('data', (data: Buffer) => {
-        const line = data.toString().trim()
-        stderr += line + '\n'
+        // Buffer and split on newlines so we never break a partial line
+        stderrBuf += data.toString()
+        const lines = stderrBuf.split('\n')
+        stderrBuf = lines.pop() ?? ''
 
-        // Parse progress lines: PROGRESS:<percent>:<message>
-        const match = line.match(/^PROGRESS:(\d+):(.+)$/)
-        if (match) {
-          onProgress(parseInt(match[1], 10), match[2])
+        for (const rawLine of lines) {
+          const line = rawLine.trim()
+          if (!line) continue
+          stderr += line + '\n'
+
+          // Parse progress lines: PROGRESS:<percent>:<message>
+          const match = line.match(/^PROGRESS:(\d+):(.+)$/)
+          if (match) {
+            console.log(`[MM][transcribe][progress] ${match[1]}% - ${match[2]}`)
+            onProgress(parseInt(match[1], 10), match[2])
+          } else {
+            // Forward everything else (warnings, tracebacks, raw library output) to main console
+            console.error(`[MM][transcribe][py-stderr] ${line}`)
+          }
         }
       })
 
       this.process.on('close', (code) => {
         this.process = null
+        // Flush any trailing stderr
+        if (stderrBuf.trim()) {
+          console.error(`[MM][transcribe][py-stderr] ${stderrBuf.trim()}`)
+          stderr += stderrBuf + '\n'
+        }
+        console.log(`[MM][transcribe] python exited with code ${code}`)
+        console.log(`[MM][transcribe] stdout total: ${stdout.length} bytes`)
+        console.log(`[MM][transcribe] stderr total: ${stderr.length} bytes`)
+
         if (signal?.aborted) {
           return reject(new Error('Cancelled'))
         }
@@ -66,18 +104,27 @@ export class TranscriptionService {
           const errorLine = stderr
             .split('\n')
             .find((l) => l.startsWith('ERROR:'))
+          console.error('[MM][transcribe] non-zero exit. Last 1000 chars of stderr:')
+          console.error(stderr.slice(-1000))
           return reject(new Error(errorLine?.slice(6) || `Transcription failed (exit code ${code})`))
         }
         try {
           const result = JSON.parse(stdout) as TranscriptionResult
+          console.log(`[MM][transcribe] parsed ${result.segments?.length ?? 0} segments, duration ${result.duration}s, language ${result.language}`)
           resolve(result)
-        } catch {
+        } catch (parseErr) {
+          console.error('[MM][transcribe] JSON.parse failed:', (parseErr as Error).message)
+          console.error('[MM][transcribe] First 500 chars of stdout:')
+          console.error(stdout.slice(0, 500))
+          console.error('[MM][transcribe] Last 500 chars of stdout:')
+          console.error(stdout.slice(-500))
           reject(new Error('Failed to parse transcription output'))
         }
       })
 
       this.process.on('error', (err) => {
         this.process = null
+        console.error('[MM][transcribe] failed to spawn python:', err)
         reject(new Error(`Failed to start Python: ${err.message}`))
       })
 

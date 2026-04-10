@@ -41,6 +41,7 @@ export function registerIpcHandlers(): void {
       filters: [
         { name: 'Markdown', extensions: ['md'] },
         { name: 'JSON', extensions: ['json'] },
+        { name: 'Text', extensions: ['txt'] },
         { name: 'All Files', extensions: ['*'] }
       ]
     })
@@ -52,14 +53,19 @@ export function registerIpcHandlers(): void {
 
   // Pipeline
   ipcMain.handle('pipeline:start', async (event, filePath: string, language: LanguageCode) => {
+    console.log('[MM][ipc] pipeline:start received', { filePath, language })
     const win = BrowserWindow.fromWebContents(event.sender)
     try {
       const result = await pipeline.run(filePath, language, (progress) => {
         win?.webContents.send('pipeline:progress', progress)
       })
+      console.log('[MM][ipc] pipeline:start success, returning result id', result.id)
       return { ok: true, result }
     } catch (err) {
-      return { ok: false, error: (err as Error).message }
+      const e = err as Error
+      console.error('[MM][ipc] pipeline:start FAILED:', e.message)
+      console.error('[MM][ipc] stack:', e.stack)
+      return { ok: false, error: e.message }
     }
   })
 
@@ -72,7 +78,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('history:list', () => pipeline.getHistory())
   ipcMain.handle('history:get', (_event, id: string) => pipeline.getResult(id))
   ipcMain.handle('history:delete', (_event, id: string) => pipeline.deleteResult(id))
-  ipcMain.handle('history:export', async (_event, id: string, format: 'json' | 'markdown') => {
+  ipcMain.handle('history:export', async (_event, id: string, format: 'json' | 'markdown' | 'transcript') => {
     const result = await pipeline.getResult(id)
     if (!result) return null
     return pipeline.exportResult(result, format)

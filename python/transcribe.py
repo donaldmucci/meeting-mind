@@ -45,6 +45,10 @@ def progress(percent: int, message: str):
     print(f"PROGRESS:{percent}:{message}", file=sys.stderr, flush=True)
 
 
+def debug(message: str):
+    print(f"DEBUG:{message}", file=sys.stderr, flush=True)
+
+
 def error(message: str):
     print(f"ERROR:{message}", file=sys.stderr, flush=True)
     sys.exit(1)
@@ -120,6 +124,9 @@ def main():
     parser.add_argument("--hf-token", default=os.environ.get("HF_TOKEN", ""), help="HuggingFace token for diarization")
     args = parser.parse_args()
 
+    debug(f"args: file={args.file!r} model={args.model} language={args.language} device={args.device}")
+    debug(f"python={sys.version.split()[0]} cwd={os.getcwd()}")
+
     temp_dir = None
 
     try:
@@ -133,41 +140,60 @@ def main():
                 error(f"File not found: {args.file}")
             audio_path = args.file
 
+        try:
+            sz = os.path.getsize(audio_path)
+            debug(f"input audio path={audio_path} size={sz} bytes")
+        except OSError as e:
+            debug(f"could not stat input: {e}")
+
         # Resolve device
         device = args.device
         if device == "auto":
             try:
                 import torch
                 device = "cuda" if torch.cuda.is_available() else "cpu"
+                debug(f"torch.cuda.is_available()={torch.cuda.is_available()} -> device={device}")
             except ImportError:
                 device = "cpu"
+                debug("torch not importable, falling back to cpu")
 
         compute_type = "float16" if device == "cuda" else "int8"
+        debug(f"resolved device={device} compute_type={compute_type}")
 
         progress(12, "Loading WhisperX model...")
 
         try:
             import whisperx
-        except ImportError:
-            error("whisperx is not installed. Run: pip install whisperx")
+            debug(f"whisperx imported OK")
+        except ImportError as e:
+            error(f"whisperx is not installed: {e}. Run: pip install whisperx")
 
         try:
             model = whisperx.load_model(args.model, device, compute_type=compute_type, language=args.language)
+            debug("whisperx model loaded")
         except Exception as e:
+            import traceback
+            print(traceback.format_exc(), file=sys.stderr, flush=True)
             error(f"Failed to load model: {e}")
 
         progress(18, "Loading audio...")
 
         try:
             audio = whisperx.load_audio(audio_path)
+            debug(f"audio loaded: shape={getattr(audio, 'shape', 'n/a')}")
         except Exception as e:
+            import traceback
+            print(traceback.format_exc(), file=sys.stderr, flush=True)
             error(f"Failed to load audio: {e}")
 
         progress(20, "Transcribing...")
 
         try:
             result = model.transcribe(audio, batch_size=16)
+            debug(f"transcribe done: {len(result.get('segments', []))} segments, language={result.get('language')}")
         except Exception as e:
+            import traceback
+            print(traceback.format_exc(), file=sys.stderr, flush=True)
             error(f"Transcription failed: {e}")
 
         progress(50, "Aligning timestamps...")
@@ -182,13 +208,21 @@ def main():
 
         speakers = set()
         hf_token = args.hf_token
+        debug(f"hf_token present: {bool(hf_token)} (length={len(hf_token) if hf_token else 0})")
 
         if hf_token:
             try:
+                debug("loading diarization pipeline...")
                 diarize_model = whisperx.DiarizationPipeline(use_auth_token=hf_token, device=device)
+                debug("running diarization on audio...")
                 diarize_segments = diarize_model(audio)
+                debug(f"diarization produced {len(diarize_segments)} segments")
                 result = whisperx.assign_word_speakers(diarize_segments, result)
+                speaker_set = {s.get("speaker") for s in result.get("segments", []) if s.get("speaker")}
+                debug(f"diarization assigned speakers: {sorted(speaker_set)}")
             except Exception as e:
+                import traceback
+                print(traceback.format_exc(), file=sys.stderr, flush=True)
                 progress(70, f"Diarization skipped: {e}")
         else:
             progress(70, "Diarization skipped (no HuggingFace token)")

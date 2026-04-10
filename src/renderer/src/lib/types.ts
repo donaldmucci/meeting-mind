@@ -49,6 +49,7 @@ export interface Settings {
     pythonPath: string
     model: 'tiny' | 'base' | 'small' | 'medium' | 'large'
     device: 'auto' | 'cpu' | 'cuda'
+    hfToken: string
   }
 }
 

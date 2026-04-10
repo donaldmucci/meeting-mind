@@ -23,6 +23,14 @@ export class PipelineService {
     const isUrl = filePath.startsWith('http://') || filePath.startsWith('https://')
     const fileName = isUrl ? 'YouTube Video' : path.basename(filePath)
 
+    const t0 = Date.now()
+    console.log('[MM][pipeline] run() start')
+    console.log('[MM][pipeline] filePath:', filePath)
+    console.log('[MM][pipeline] language:', language)
+    console.log('[MM][pipeline] isUrl:', isUrl)
+    console.log('[MM][pipeline] llm endpoint:', settings.llm.endpoint, 'model:', settings.llm.model)
+    console.log('[MM][pipeline] whisper:', settings.whisper)
+
     try {
       // Step 1: Transcription (0-60%), includes optional YouTube download
       onProgress({ step: isUrl ? 'downloading' : 'transcribing', percent: 0, message: isUrl ? 'Preparing download...' : 'Starting transcription...' })
@@ -30,6 +38,8 @@ export class PipelineService {
       // Override whisper language with the user's per-file selection
       const whisperSettings = { ...settings.whisper, language }
 
+      console.log('[MM][pipeline] -> transcription start')
+      const tTrans = Date.now()
       const transcript = await this.transcriptionService.transcribe(
         filePath,
         whisperSettings,
@@ -45,6 +55,8 @@ export class PipelineService {
         },
         signal
       )
+      console.log(`[MM][pipeline] <- transcription done in ${Date.now() - tTrans}ms`)
+      console.log(`[MM][pipeline] transcript: ${transcript.segments?.length ?? 0} segments, ${transcript.duration}s, lang=${transcript.language}, speakers=${transcript.speakers?.join(',')}`)
 
       onProgress({ step: 'transcribing', percent: 60, message: 'Transcription complete' })
 
@@ -53,6 +65,8 @@ export class PipelineService {
 
       const llm = new LlmService(settings.llm)
 
+      console.log('[MM][pipeline] -> LLM analysis (5 parallel calls)')
+      const tLlm = Date.now()
       const [summary, topics, decisions, actionItems, followUps] = await Promise.all([
         llm.generateSummary(transcript.segments, language, signal),
         llm.extractTopics(transcript.segments, language, signal),
@@ -60,6 +74,8 @@ export class PipelineService {
         llm.extractActionItems(transcript.segments, language, signal),
         llm.extractFollowUps(transcript.segments, language, signal)
       ])
+      console.log(`[MM][pipeline] <- LLM analysis done in ${Date.now() - tLlm}ms`)
+      console.log(`[MM][pipeline] results: ${topics.length} topics, ${decisions.length} decisions, ${actionItems.length} action items, ${followUps.length} follow-ups`)
 
       onProgress({ step: 'analyzing', percent: 95, message: 'Analysis complete' })
 
@@ -81,17 +97,23 @@ export class PipelineService {
 
       // Save result
       await this.saveResult(result)
+      console.log(`[MM][pipeline] saved result ${result.id}`)
+      console.log(`[MM][pipeline] run() complete in ${Date.now() - t0}ms`)
 
       onProgress({ step: 'complete', percent: 100, message: 'Done' })
       return result
     } catch (err) {
-      if ((err as Error).message === 'Cancelled') {
+      const e = err as Error
+      if (e.message === 'Cancelled') {
+        console.log('[MM][pipeline] cancelled')
         throw err
       }
+      console.error('[MM][pipeline] FAILED:', e.message)
+      console.error('[MM][pipeline] stack:', e.stack)
       onProgress({
         step: 'error',
         percent: 0,
-        message: (err as Error).message
+        message: e.message
       })
       throw err
     } finally {
@@ -145,11 +167,30 @@ export class PipelineService {
     await fs.promises.unlink(filePath).catch(() => {})
   }
 
-  async exportResult(result: MeetingResult, format: 'json' | 'markdown'): Promise<string> {
+  async exportResult(result: MeetingResult, format: 'json' | 'markdown' | 'transcript'): Promise<string> {
     if (format === 'json') {
       return JSON.stringify(result, null, 2)
     }
+    if (format === 'transcript') {
+      return this.toTranscriptText(result)
+    }
     return this.toMarkdown(result)
+  }
+
+  private toTranscriptText(r: MeetingResult): string {
+    const header = [
+      `Meeting: ${r.fileName}`,
+      `Date: ${new Date(r.processedAt).toLocaleString()}`,
+      `Duration: ${formatDuration(r.duration)}`,
+      `Language: ${r.language}`,
+      `Speakers: ${r.transcript.speakers.join(', ')}`,
+      ''.padEnd(60, '='),
+      ''
+    ]
+    const body = r.transcript.segments.map((seg) => {
+      return `[${formatTime(seg.start)}] ${seg.speaker}: ${seg.text}`
+    })
+    return [...header, ...body].join('\n')
   }
 
   private toMarkdown(r: MeetingResult): string {
@@ -180,4 +221,19 @@ export class PipelineService {
     ]
     return lines.join('\n')
   }
+}
+
+function formatTime(seconds: number): string {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = Math.floor(seconds % 60)
+  const pad = (n: number): string => n.toString().padStart(2, '0')
+  if (h > 0) return `${h}:${pad(m)}:${pad(s)}`
+  return `${pad(m)}:${pad(s)}`
+}
+
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = Math.floor(seconds % 60)
+  return `${m}m ${s}s`
 }

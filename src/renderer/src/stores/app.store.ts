@@ -42,7 +42,7 @@ interface AppState {
   setActiveTab: (tab: AppState['activeTab']) => void
   openResult: (id: string) => Promise<void>
   deleteResult: (id: string) => Promise<void>
-  exportResult: (format: 'json' | 'markdown') => Promise<void>
+  exportResult: (format: 'json' | 'markdown' | 'transcript') => Promise<void>
   loadHistory: () => Promise<void>
   loadSettings: () => Promise<void>
   saveSettings: (settings: Settings) => Promise<void>
@@ -142,8 +142,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!result) return
     const content = await window.api.exportResult(result.id, format) as string | null
     if (!content) return
-    const ext = format === 'json' ? 'json' : 'md'
-    const defaultName = `${result.fileName.replace(/\.[^.]+$/, '')}_recap.${ext}`
+    const baseName = result.fileName.replace(/\.[^.]+$/, '')
+    const { ext, suffix } = format === 'json'
+      ? { ext: 'json', suffix: 'recap' }
+      : format === 'transcript'
+      ? { ext: 'txt', suffix: 'transcript' }
+      : { ext: 'md', suffix: 'analysis' }
+    const defaultName = `${baseName}_${suffix}.${ext}`
     await window.api.saveFile(content, defaultName)
   },
 
