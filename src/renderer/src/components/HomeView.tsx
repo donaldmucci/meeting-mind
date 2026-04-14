@@ -1,18 +1,26 @@
-import { Upload, FileVideo, Clock, Trash2, Languages, Link, X } from 'lucide-react'
+import { Upload, FileVideo, Clock, Trash2, Languages, Link, X, Gauge } from 'lucide-react'
 import { useAppStore } from '../stores/app.store'
 import { LANGUAGES } from '../lib/types'
-import type { LanguageCode } from '../lib/types'
+import type { LanguageCode, SummaryDetail } from '../lib/types'
+
+const DETAIL_OPTIONS: { value: SummaryDetail; label: string; hint: string }[] = [
+  { value: 'short', label: 'Short', hint: 'Quick overview, 2-4 bullets' },
+  { value: 'normal', label: 'Normal', hint: 'Balanced summary' },
+  { value: 'max', label: 'Max', hint: 'Maximum detail, 8-15 bullets' }
+]
 
 export function HomeView() {
   const filePath = useAppStore((s) => s.filePath)
   const fileName = useAppStore((s) => s.fileName)
   const youtubeUrl = useAppStore((s) => s.youtubeUrl)
   const language = useAppStore((s) => s.language)
+  const summaryDetail = useAppStore((s) => s.summaryDetail)
   const error = useAppStore((s) => s.error)
   const history = useAppStore((s) => s.history)
   const selectFile = useAppStore((s) => s.selectFile)
   const setYoutubeUrl = useAppStore((s) => s.setYoutubeUrl)
   const setLanguage = useAppStore((s) => s.setLanguage)
+  const setSummaryDetail = useAppStore((s) => s.setSummaryDetail)
   const startProcessing = useAppStore((s) => s.startProcessing)
   const openResult = useAppStore((s) => s.openResult)
   const deleteResult = useAppStore((s) => s.deleteResult)
@@ -97,6 +105,28 @@ export function HomeView() {
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="flex w-full items-center gap-3">
+              <Gauge size={18} className="shrink-0 text-zinc-400" />
+              <label className="shrink-0 text-sm text-zinc-400">Recap detail</label>
+              <div className="flex flex-1 overflow-hidden rounded-md border border-zinc-700">
+                {DETAIL_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    title={opt.hint}
+                    onClick={() => setSummaryDetail(opt.value)}
+                    className={`flex-1 px-3 py-2 text-sm transition ${
+                      summaryDetail === opt.value
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <button

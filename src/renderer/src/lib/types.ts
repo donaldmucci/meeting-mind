@@ -67,6 +67,8 @@ export interface TranscriptionResult {
   language: string
 }
 
+export type SummaryDetail = 'short' | 'normal' | 'max'
+
 export interface MeetingSummary {
   overview: string
   keyPoints: string[]
@@ -108,6 +110,7 @@ export interface MeetingResult {
   duration: number
   transcript: TranscriptionResult
   summary: MeetingSummary
+  summaryDetail: SummaryDetail
   topics: Topic[]
   decisions: Decision[]
   actionItems: ActionItem[]

@@ -2,7 +2,7 @@ import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { getSettings, setSettings } from './services/settings.service'
 import { LlmService } from './services/llm.service'
 import { PipelineService } from './services/pipeline.service'
-import { Settings, LanguageCode } from './lib/types'
+import { Settings, LanguageCode, SummaryDetail } from './lib/types'
 
 const pipeline = new PipelineService()
 
@@ -52,11 +52,11 @@ export function registerIpcHandlers(): void {
   })
 
   // Pipeline
-  ipcMain.handle('pipeline:start', async (event, filePath: string, language: LanguageCode) => {
-    console.log('[MM][ipc] pipeline:start received', { filePath, language })
+  ipcMain.handle('pipeline:start', async (event, filePath: string, language: LanguageCode, summaryDetail: SummaryDetail = 'normal') => {
+    console.log('[MM][ipc] pipeline:start received', { filePath, language, summaryDetail })
     const win = BrowserWindow.fromWebContents(event.sender)
     try {
-      const result = await pipeline.run(filePath, language, (progress) => {
+      const result = await pipeline.run(filePath, language, summaryDetail, (progress) => {
         win?.webContents.send('pipeline:progress', progress)
       })
       console.log('[MM][ipc] pipeline:start success, returning result id', result.id)
@@ -72,6 +72,19 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('pipeline:cancel', () => {
     pipeline.cancel()
     return { ok: true }
+  })
+
+  ipcMain.handle('pipeline:regenerate-summary', async (_event, id: string, detail: SummaryDetail) => {
+    console.log('[MM][ipc] pipeline:regenerate-summary received', { id, detail })
+    try {
+      const result = await pipeline.regenerateSummary(id, detail)
+      if (!result) return { ok: false, error: 'Result not found' }
+      return { ok: true, result }
+    } catch (err) {
+      const e = err as Error
+      console.error('[MM][ipc] pipeline:regenerate-summary FAILED:', e.message)
+      return { ok: false, error: e.message }
+    }
   })
 
   // History

@@ -12,8 +12,11 @@ const api = {
   selectFile: () => ipcRenderer.invoke('file:select'),
 
   // Pipeline
-  startPipeline: (filePath: string, language: string) => ipcRenderer.invoke('pipeline:start', filePath, language),
+  startPipeline: (filePath: string, language: string, summaryDetail: string) =>
+    ipcRenderer.invoke('pipeline:start', filePath, language, summaryDetail),
   cancelPipeline: () => ipcRenderer.invoke('pipeline:cancel'),
+  regenerateSummary: (id: string, detail: string) =>
+    ipcRenderer.invoke('pipeline:regenerate-summary', id, detail),
   onPipelineProgress: (callback: (progress: unknown) => void) => {
     const handler = (_event: unknown, progress: unknown) => callback(progress)
     ipcRenderer.on('pipeline:progress', handler)

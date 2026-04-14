@@ -5,7 +5,7 @@ import { app } from 'electron'
 import { TranscriptionService } from './transcription.service'
 import { LlmService } from './llm.service'
 import { getSettings } from './settings.service'
-import { MeetingResult, PipelineProgress, LanguageCode } from '../lib/types'
+import { MeetingResult, PipelineProgress, LanguageCode, SummaryDetail } from '../lib/types'
 
 export class PipelineService {
   private transcriptionService = new TranscriptionService()
@@ -14,6 +14,7 @@ export class PipelineService {
   async run(
     filePath: string,
     language: LanguageCode,
+    summaryDetail: SummaryDetail,
     onProgress: (progress: PipelineProgress) => void
   ): Promise<MeetingResult> {
     this.abortController = new AbortController()
@@ -29,6 +30,7 @@ export class PipelineService {
     console.log('[MM][pipeline] language:', language)
     console.log('[MM][pipeline] isUrl:', isUrl)
     console.log('[MM][pipeline] llm endpoint:', settings.llm.endpoint, 'model:', settings.llm.model)
+    console.log('[MM][pipeline] summaryDetail:', summaryDetail)
     console.log('[MM][pipeline] whisper:', settings.whisper)
 
     try {
@@ -68,7 +70,7 @@ export class PipelineService {
       console.log('[MM][pipeline] -> LLM analysis (5 parallel calls)')
       const tLlm = Date.now()
       const [summary, topics, decisions, actionItems, followUps] = await Promise.all([
-        llm.generateSummary(transcript.segments, language, signal),
+        llm.generateSummary(transcript.segments, language, summaryDetail, signal),
         llm.extractTopics(transcript.segments, language, signal),
         llm.extractDecisions(transcript.segments, language, signal),
         llm.extractActionItems(transcript.segments, language, signal),
@@ -89,6 +91,7 @@ export class PipelineService {
         duration: transcript.duration,
         transcript,
         summary,
+        summaryDetail,
         topics,
         decisions,
         actionItems,
@@ -126,6 +129,34 @@ export class PipelineService {
     this.transcriptionService.cancel()
   }
 
+  async regenerateSummary(id: string, detail: SummaryDetail): Promise<MeetingResult | null> {
+    const existing = await this.getResult(id)
+    if (!existing) return null
+
+    this.abortController = new AbortController()
+    const signal = this.abortController.signal
+
+    const settings = getSettings()
+    const llm = new LlmService(settings.llm)
+
+    console.log(`[MM][pipeline] regenerateSummary id=${id} detail=${detail}`)
+    const t0 = Date.now()
+    try {
+      const summary = await llm.generateSummary(
+        existing.transcript.segments,
+        existing.language,
+        detail,
+        signal
+      )
+      const updated: MeetingResult = { ...existing, summary, summaryDetail: detail }
+      await this.saveResult(updated)
+      console.log(`[MM][pipeline] regenerateSummary done in ${Date.now() - t0}ms`)
+      return updated
+    } finally {
+      this.abortController = null
+    }
+  }
+
   private async saveResult(result: MeetingResult): Promise<void> {
     const dir = path.join(app.getPath('userData'), 'results')
     await fs.promises.mkdir(dir, { recursive: true })
@@ -140,7 +171,7 @@ export class PipelineService {
       const results: MeetingResult[] = []
       for (const file of files.filter((f) => f.endsWith('.json'))) {
         const data = await fs.promises.readFile(path.join(dir, file), 'utf-8')
-        results.push(JSON.parse(data))
+        results.push(withDefaults(JSON.parse(data)))
       }
       return results.sort(
         (a, b) => new Date(b.processedAt).getTime() - new Date(a.processedAt).getTime()
@@ -155,7 +186,7 @@ export class PipelineService {
     const filePath = path.join(dir, `${id}.json`)
     try {
       const data = await fs.promises.readFile(filePath, 'utf-8')
-      return JSON.parse(data)
+      return withDefaults(JSON.parse(data))
     } catch {
       return null
     }
@@ -236,4 +267,8 @@ function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60)
   const s = Math.floor(seconds % 60)
   return `${m}m ${s}s`
+}
+
+function withDefaults(r: MeetingResult): MeetingResult {
+  return { ...r, summaryDetail: r.summaryDetail ?? 'normal' }
 }

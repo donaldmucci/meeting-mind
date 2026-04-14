@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { MeetingResult, PipelineProgress, Settings, LanguageCode } from '../lib/types'
+import type { MeetingResult, PipelineProgress, Settings, LanguageCode, SummaryDetail } from '../lib/types'
 
 interface HistoryEntry {
   id: string
@@ -17,10 +17,12 @@ interface AppState {
   fileName: string | null
   youtubeUrl: string | null
   language: LanguageCode
+  summaryDetail: SummaryDetail
 
   // Processing
   progress: PipelineProgress | null
   error: string | null
+  regeneratingSummary: boolean
 
   // Results
   result: MeetingResult | null
@@ -35,6 +37,7 @@ interface AppState {
 
   // Actions
   setLanguage: (lang: LanguageCode) => void
+  setSummaryDetail: (detail: SummaryDetail) => void
   selectFile: () => Promise<void>
   setYoutubeUrl: (url: string) => void
   startProcessing: () => Promise<void>
@@ -43,6 +46,7 @@ interface AppState {
   openResult: (id: string) => Promise<void>
   deleteResult: (id: string) => Promise<void>
   exportResult: (format: 'json' | 'markdown' | 'transcript') => Promise<void>
+  regenerateSummary: (detail: SummaryDetail) => Promise<void>
   loadHistory: () => Promise<void>
   loadSettings: () => Promise<void>
   saveSettings: (settings: Settings) => Promise<void>
@@ -57,8 +61,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   fileName: null,
   youtubeUrl: null,
   language: 'en' as LanguageCode,
+  summaryDetail: 'normal' as SummaryDetail,
   progress: null,
   error: null,
+  regeneratingSummary: false,
   result: null,
   activeTab: 'summary',
   history: [],
@@ -66,6 +72,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   settingsOpen: false,
 
   setLanguage: (lang) => set({ language: lang }),
+
+  setSummaryDetail: (detail) => set({ summaryDetail: detail }),
 
   selectFile: async () => {
     const path = await window.api.selectFile()
@@ -84,7 +92,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   startProcessing: async () => {
-    const { filePath, youtubeUrl, language } = get()
+    const { filePath, youtubeUrl, language, summaryDetail } = get()
     const source = filePath || youtubeUrl
     if (!source) return
 
@@ -98,7 +106,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ progress: progress as PipelineProgress })
     })
 
-    const response = await window.api.startPipeline(source, language) as {
+    const response = await window.api.startPipeline(source, language, summaryDetail) as {
       ok: boolean
       result?: MeetingResult
       error?: string
@@ -135,6 +143,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ view: 'home', result: null })
     }
     get().loadHistory()
+  },
+
+  regenerateSummary: async (detail) => {
+    const { result } = get()
+    if (!result) return
+    set({ regeneratingSummary: true, error: null })
+    try {
+      const response = await window.api.regenerateSummary(result.id, detail) as {
+        ok: boolean
+        result?: MeetingResult
+        error?: string
+      }
+      if (response.ok && response.result) {
+        set({ result: response.result })
+        get().loadHistory()
+      } else {
+        set({ error: response.error || 'Failed to regenerate summary' })
+      }
+    } finally {
+      set({ regeneratingSummary: false })
+    }
   },
 
   exportResult: async (format) => {

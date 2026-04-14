@@ -22,6 +22,7 @@ Think of it as an open-source, local-first alternative to MS Teams Premium's Int
   - Decisions made and by whom
   - Action items with assignee, deadline, and priority
   - Suggested follow-ups
+- **Adjustable recap detail** -- Pick **Short**, **Normal**, or **Max** on the home screen to control how deep the summary goes (from a 2-3 sentence overview with a handful of bullets, up to 5-8 paragraphs and 8-15 detailed key points). You can also switch levels on an existing recap and regenerate the summary in place without re-transcribing.
 - **28 languages supported** -- Select the conversation language per file; both transcription and LLM output adapt accordingly.
 - **History and export** -- Past analyses are saved locally. Export the **analysis** (summary, topics, decisions, action items, follow-ups) as a Markdown file, or the full **transcript** with timestamps and speaker labels as a text file.
 - **Fully configurable** -- Choose your Whisper model size, LLM endpoint, model, and device (CPU/GPU).

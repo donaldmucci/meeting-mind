@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import { Settings, MeetingSummary, Topic, Decision, ActionItem, FollowUp, TranscriptSegment, LanguageCode } from '../lib/types'
+import { Settings, MeetingSummary, Topic, Decision, ActionItem, FollowUp, TranscriptSegment, LanguageCode, SummaryDetail } from '../lib/types'
 import {
   summaryPrompt,
   topicsPrompt,
@@ -48,8 +48,7 @@ export class LlmService {
 
     let content = response.choices[0]?.message?.content || '{}'
     console.log(`[MM][llm][${label}] <- response in ${Date.now() - t0}ms (${content.length} chars)`)
-    // Strip markdown code fences that some models wrap around JSON
-    content = content.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '')
+    content = extractJson(content)
     return content
   }
 
@@ -64,9 +63,14 @@ export class LlmService {
     }
   }
 
-  async generateSummary(segments: TranscriptSegment[], lang: LanguageCode, signal?: AbortSignal): Promise<MeetingSummary> {
+  async generateSummary(
+    segments: TranscriptSegment[],
+    lang: LanguageCode,
+    detail: SummaryDetail = 'normal',
+    signal?: AbortSignal
+  ): Promise<MeetingSummary> {
     const transcript = buildTranscriptContext(segments)
-    const raw = await this.chat('summary', summaryPrompt(lang), transcript, signal)
+    const raw = await this.chat(`summary:${detail}`, summaryPrompt(lang, detail), transcript, signal)
     const parsed = this.safeParse<{ overview?: string; keyPoints?: string[] }>('summary', raw)
     return {
       overview: parsed.overview || '',
@@ -110,4 +114,27 @@ export class LlmService {
       return { ok: false, error: (err as Error).message }
     }
   }
+}
+
+// Pull a JSON object out of a model response that may be wrapped in markdown
+// fences, prose preamble/postamble, or multiple fenced blocks.
+function extractJson(raw: string): string {
+  let s = raw.trim()
+
+  // Prefer the contents of a ```json ... ``` (or plain ``` ... ```) fence.
+  const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  if (fence && fence[1]) {
+    s = fence[1].trim()
+  }
+
+  // Fall back to the first balanced {...} slice — handles prose before/after.
+  if (!s.startsWith('{')) {
+    const start = s.indexOf('{')
+    const end = s.lastIndexOf('}')
+    if (start !== -1 && end > start) {
+      s = s.slice(start, end + 1)
+    }
+  }
+
+  return s
 }

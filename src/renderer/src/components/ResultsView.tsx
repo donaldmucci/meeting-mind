@@ -21,6 +21,8 @@ export function ResultsView() {
   const activeTab = useAppStore((s) => s.activeTab)
   const setActiveTab = useAppStore((s) => s.setActiveTab)
   const exportResult = useAppStore((s) => s.exportResult)
+  const regenerateSummary = useAppStore((s) => s.regenerateSummary)
+  const regeneratingSummary = useAppStore((s) => s.regeneratingSummary)
 
   if (!result) return null
 
@@ -63,7 +65,16 @@ export function ResultsView() {
 
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto p-6">
-        {activeTab === 'summary' && <SummaryView summary={result.summary} duration={result.duration} speakers={result.transcript.speakers} />}
+        {activeTab === 'summary' && (
+          <SummaryView
+            summary={result.summary}
+            duration={result.duration}
+            speakers={result.transcript.speakers}
+            detail={result.summaryDetail ?? 'normal'}
+            regenerating={regeneratingSummary}
+            onRegenerate={regenerateSummary}
+          />
+        )}
         {activeTab === 'transcript' && <TranscriptView segments={result.transcript.segments} />}
         {activeTab === 'topics' && <TopicsView topics={result.topics} />}
         {activeTab === 'decisions' && <DecisionsView decisions={result.decisions} />}

@@ -1,4 +1,4 @@
-import { LANGUAGES, LanguageCode } from './types'
+import { LANGUAGES, LanguageCode, SummaryDetail } from './types'
 
 function languageName(code: LanguageCode): string {
   return LANGUAGES.find((l) => l.code === code)?.name ?? 'English'
@@ -9,20 +9,39 @@ function langInstruction(code: LanguageCode): string {
   return `\n\nIMPORTANT: The meeting was conducted in ${languageName(code)}. Write ALL output (overview, key points, descriptions, etc.) in ${languageName(code)}.`
 }
 
-export function summaryPrompt(lang: LanguageCode): string {
+const SUMMARY_SPEC: Record<SummaryDetail, { overview: string; points: string; guideline: string }> = {
+  short: {
+    overview: 'A 1 short paragraph summary (2-3 sentences) covering only the main outcome and overall purpose of the meeting.',
+    points: '2-4 key points, each one short sentence',
+    guideline: 'Be terse. Omit nuance and secondary threads — surface only the single most important outcome.'
+  },
+  normal: {
+    overview: 'A 2-4 paragraph summary of the meeting covering the main discussion, outcomes, and overall tone.',
+    points: '3-8 key points',
+    guideline: 'Keep the overview concise but comprehensive.'
+  },
+  max: {
+    overview: 'A 5-8 paragraph summary with exhaustive detail: discussion flow, arguments raised by each participant, outcomes, overall tone, nuances, disagreements, and any open questions left unresolved.',
+    points: '8-15 key points, each 1-2 sentences with supporting context',
+    guideline: 'Be thorough. Capture subtleties, minority opinions, and context behind each point. Do not omit material the reader might find useful.'
+  }
+}
+
+export function summaryPrompt(lang: LanguageCode, detail: SummaryDetail = 'normal'): string {
+  const spec = SUMMARY_SPEC[detail]
   return `You are a meeting analyst. Given a meeting transcript with speaker labels and timestamps, produce a structured summary.
 
 Return JSON with this exact structure:
 {
-  "overview": "A 2-4 paragraph summary of the meeting covering the main discussion, outcomes, and overall tone.",
+  "overview": "${spec.overview}",
   "keyPoints": ["Key point 1", "Key point 2", ...]
 }
 
 Guidelines:
 - Reference speakers by their labels (e.g., SPEAKER_00, SPEAKER_01)
 - Focus on substance, not pleasantries
-- Keep the overview concise but comprehensive
-- List 3-8 key points${langInstruction(lang)}`
+- ${spec.guideline}
+- List ${spec.points}${langInstruction(lang)}`
 }
 
 export function topicsPrompt(lang: LanguageCode): string {
